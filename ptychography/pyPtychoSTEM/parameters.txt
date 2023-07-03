@@ -1,0 +1,8 @@
+file	E:/data_temporary/20230320_WSe2_4DSTEM/WSe2_woBN_0.3twist_5.1Mx_360_01_cropped.tif
+method	wdd
+aperture	0.015
+stepsize	0.408
+voltage	80.0
+rotation	0.0
+threshold	0.3
+workers	8
