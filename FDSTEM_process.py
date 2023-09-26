@@ -119,9 +119,8 @@ class fourd_viewer:
         self.fig.canvas.draw()
 
 
-
 class threed_viewer:
-    def __init__(self, fig, ax, fdata):
+    def __init__(self, fig, ax, fdata, x_scale=1, x_unit="NA"):
         self.fig = fig
         self.ax = ax
         self.fdata = fdata
@@ -131,6 +130,15 @@ class threed_viewer:
         self.log_scale = -1
         self.log_scale_message = "False"
         self.ax[0].set_title("[x, y]=[%d, %d]"%(self.ind[1], self.ind[0]))
+
+        if x_scale == 1:
+            self.x_range = np.arange(self.sz)
+
+        else:
+            self.x_range = np.arange(self.sz) * x_scale
+
+        self.x_unit = x_unit
+        self.x_scale = x_scale
         
         self.int_img = np.sum(fdata, axis=2)
         mask = np.zeros((self.sy, self.sx))
@@ -149,9 +157,10 @@ class threed_viewer:
         
         self.ax[2].set_title("log scale: %s"%(self.log_scale_message))
         if self.log_scale == -1:
-            self.ax[2].plot(self.fdata[self.ind[0], self.ind[1]], "k-")
+            self.ax[2].plot(self.x_range, self.fdata[self.ind[0], self.ind[1]], "k-")
         else:
-            self.ax[2].plot(np.log(self.fdata[self.ind[0], self.ind[1]]), "k-")
+            self.ax[2].plot(self.x_range, np.log(self.fdata[self.ind[0], self.ind[1]]), "k-")
+        self.ax[2].set_xlabel(self.x_unit)
         self.ax[2].grid()
         
 
@@ -184,8 +193,8 @@ class threed_viewer:
             return True
         
     def onselect(self, eclick, erelease):
-        self.by, self.bx  = int(eclick.ydata), int(eclick.xdata)
-        self.height, self.width = int(erelease.ydata)-int(eclick.ydata), int(erelease.xdata)-int(eclick.xdata)
+        self.by, self.bx  = eclick.ydata, eclick.xdata
+        self.height, self.width = erelease.ydata-eclick.ydata, erelease.xdata-eclick.xdata
         
         self.update()
         
@@ -203,28 +212,29 @@ class threed_viewer:
         self.ax[0].imshow(mask, cmap="Reds", alpha=mask)
         self.ax[0].axis("off")
         
-        df_img = np.sum(self.fdata[:, :, self.bx:self.bx+self.width], axis=2)
+        df_img = np.sum(self.fdata[:, :, int(self.bx/self.x_scale):int((self.bx+self.width)*self.x_scale)], axis=2)
         self.ax[1].imshow(df_img, cmap="gray")
 
         self.ax[1].axis("off")
         
         if self.log_scale == -1:
             self.log_scale_message = "False"
-            self.ax[2].plot(self.fdata[self.ind[0], self.ind[1]], "k-")
+            self.ax[2].plot(self.x_range, self.fdata[self.ind[0], self.ind[1]], "k-")
             self.ax[2].set_title("log scale: %s"%(self.log_scale_message))
         else:
             self.log_scale_message = "True"
-            self.ax[2].plot(np.log(self.fdata[self.ind[0], self.ind[1]]), "k-")
+            self.ax[2].plot(self.x_range, np.log(self.fdata[self.ind[0], self.ind[1]]), "k-")
             self.ax[2].set_title("log scale: %s"%(self.log_scale_message))
         
         self.ax[2].add_patch(pch.Rectangle((self.bx, self.by), self.width, self.height, 
                            linewidth=1, edgecolor="r", facecolor="none"))
         self.ax[2].grid()
+        self.ax[2].set_xlabel(self.x_unit)
         self.fig.canvas.draw()
 
 
 class FourDSTEM_process():
-    def __init__(self, file_adr, scan_per_pixel=1, mrad_per_pixel=1, f_shape=None, datatype=np.float32, visual=True):
+    def __init__(self, file_adr, scan_per_pixel=1, dp_per_pixel=1, scan_unit="nm", k_unit="1/nm", f_shape=None, datatype=np.float32, visual=True):
 
         self.file_adr = file_adr
         if f_shape != None:
@@ -254,9 +264,13 @@ class FourDSTEM_process():
         self.original_shape = self.f_stack.shape
         self.original_mean_dp = np.mean(self.original_stack, axis=(0, 1))
         self.scan_per_pixel = scan_per_pixel
-        self.mrad_per_pixel = mrad_per_pixel
+        self.dp_per_pixel = dp_per_pixel
+        self.scan_unit = scan_unit
+        self.k_unit = k_unit
         
         self.intensity_integration_map = np.sum(self.f_stack, axis=(2, 3))
+
+        self.ct = None
 
         if visual:
             fig, ax = plt.subplots(1, 2, figsize=(10, 5))
@@ -326,14 +340,14 @@ class FourDSTEM_process():
         max_ind = np.unravel_index(np.argmax(grad_map, axis=None), grad_map.shape)
         self.least_R = ((max_ind[0]-self.ct[0])**2 + (max_ind[1]-self.ct[1])**2)**(1/2)
         
-        print("radius of the BF disk = %.2f mrad"%(self.mrad_per_pixel*self.least_R))
+        print("radius of the BF disk = %.2f mrad"%(self.dp_per_pixel*self.least_R))
         
         self.cropped_size = np.around(self.least_R + buffer_size).astype(int)
 
         if self.cropped_size > self.ct[0] or self.cropped_size > self.ct[1]:
             self.cropped_size = np.min(self.ct).astype(int)
   
-        print("radius of the RoI = %.2f mrad"%(self.mrad_per_pixel*self.cropped_size))
+        print("radius of the RoI = %.2f mrad"%(self.dp_per_pixel*self.cropped_size))
         
         h_si = np.floor(self.ct[0]-self.cropped_size).astype(int)
         h_fi = np.ceil(self.ct[0]+self.cropped_size).astype(int)
@@ -357,10 +371,10 @@ class FourDSTEM_process():
 
 
     def virtual_stem(self, BF, ADF, visual=True):
-        self.BF_detector = radial_indices(self.original_mean_dp.shape, BF, self.mrad_per_pixel, center=self.ct)
+        self.BF_detector = radial_indices(self.original_mean_dp.shape, BF, self.dp_per_pixel, center=self.ct)
         self.BF_stem = np.sum(np.multiply(self.original_stack, self.BF_detector), axis=(2, 3))
         
-        self.ADF_detector = radial_indices(self.original_mean_dp.shape, ADF, self.mrad_per_pixel, center=self.ct)
+        self.ADF_detector = radial_indices(self.original_mean_dp.shape, ADF, self.dp_per_pixel, center=self.ct)
         self.ADF_stem = np.sum(np.multiply(self.original_stack, self.ADF_detector), axis=(2, 3))
 
         if visual:
@@ -442,8 +456,6 @@ class FourDSTEM_process():
             ax[3].axis("off")
             fig.tight_layout()
             
-
-
             RY, RX = np.indices(self.c_shape[:2])
             fig, ax = plt.subplots(1, 3, figsize=(30, 10))
             ax[0].imshow(self.ADF_stem, cmap="gray", origin="lower")
@@ -456,6 +468,7 @@ class FourDSTEM_process():
             ax[2].imshow(self.potential, cmap="inferno", origin="lower")
             ax[2].axis("off")
             fig.tight_layout()
+
 
     def symmetry_evaluation(self, angle, also_mirror=False, visual=True):
         """
@@ -494,34 +507,19 @@ class FourDSTEM_process():
             ax[1].axis("off")
 
 
-    def rotational_average(self, also_variance=True):
-        self.radial_avg_stack = []
-        self.radial_var_stack = []
-        len_profile = []
-        for i in range(self.original_shape[0]):
-            for j in range(self.original_shape[1]):
-                ravg, rvar = radial_stats(self.original_stack[i, j], center=self.ct, var=also_variance)
-                len_profile.append(len(ravg))
-                self.radial_avg_stack.append(ravg)
-                if also_variance:
-                    self.radial_var_stack.append(rvar)
+    def rotational_average(self, rot_variance=True):
+        
+        self.radial_avg_stack, self.radial_var_stack = fourd_radial_transformation(self.original_stack, center=self.ct, also_variance=rot_variance)
 
-        if len(np.unique(len_profile)) > 1:
-            print(np.unique(len_profile))
-            shortest = np.min(len_profile)
-            for i in range(len(self.radial_avg_stack)):
-                self.radial_avg_stack[i] = self.radial_avg_stack[i][:shortest]
-                if also_variance:
-                    self.radial_var_stack[i] = self.radial_var_stack[i][:shortest]
-
-        self.radial_avg_stack = np.asarray(self.radial_avg_stack).reshape(self.original_shape[0],self.original_shape[1], -1)
-        if also_variance:
-            self.radial_var_stack = np.asarray(self.radial_var_stack).reshape(self.original_shape[0],self.original_shape[1], -1)
     
+    def cepstral(self, dCP=False, datatype=np.float32, rot_average=False, rot_variance=False):
+        
+        self.real_per_pixel = 1 / (self.dp_per_pixel * self.original_shape[2])
     
-    def cepstral(self, dCP=False, datatype=np.float32):
-
         self.ceps, self.dcp = cepstrum_transformation(self.original_stack.copy(), dCP, datatype)
+
+        if rot_average:
+            self.ceps_avg_stack, self.ceps_var_stack = fourd_radial_transformation(self.ceps, center=None, also_variance=rot_variance)        
 
 
     def show_4d_viewer(self, fdata):
@@ -538,14 +536,14 @@ class FourDSTEM_process():
         fig.tight_layout()
 
 
-    def show_3d_viewer(self, fdata):
+    def show_3d_viewer(self, fdata, x_scale=1, x_unit="NA"):
 
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
         fig.suptitle("""1st figure (intensity map) : arrow keys or mouse left button to move the position
         2nd figure (selected range intensity image)
         3rd figure (spectrum) : press 'l' key to turn on or off log-scaling / drag to make a ROI (select a range)""")
 
-        self.tracker = threed_viewer(fig, ax, fdata)
+        self.tracker = threed_viewer(fig, ax, fdata, x_scale, x_unit)
 
         fig.canvas.mpl_connect("key_press_event", self.tracker.on_press)
         fig.canvas.mpl_connect("button_press_event", self.tracker.on_pick)
@@ -770,7 +768,37 @@ def radial_stats(image, center=None, var=True):
     
     else:
         return radial_avg, None
-    
+
+def fourd_radial_transformation(fdata, center=None, also_variance=False):
+    radial_avg_stack = []
+    radial_var_stack = []
+    len_profile = []
+
+    data_shape = fdata.shape
+
+    for i in range(data_shape[0]):
+        for j in range(data_shape[1]):
+            ravg, rvar = radial_stats(fdata[i, j], center=center, var=also_variance)
+            len_profile.append(len(ravg))
+            radial_avg_stack.append(ravg)
+            if also_variance:
+                radial_var_stack.append(rvar)
+
+    if len(np.unique(len_profile)) > 1:
+        print(np.unique(len_profile))
+        shortest = np.min(len_profile)
+        for i in range(len(radial_avg_stack)):
+            radial_avg_stack[i] = radial_avg_stack[i][:shortest]
+            if also_variance:
+                radial_var_stack[i] = radial_var_stack[i][:shortest]
+
+    radial_avg_stack = np.asarray(radial_avg_stack).reshape(data_shape[0], data_shape[1], -1)
+    if also_variance:
+        radial_var_stack = np.asarray(radial_var_stack).reshape(data_shape[0], data_shape[1], -1)
+
+    return radial_avg_stack, radial_var_stack
+
+
 def cepstrum_transformation(img, dCP=False, data_type=np.float32):
     
     img[img==0] = 1.0
