@@ -478,7 +478,7 @@ class FourDSTEM_process():
         self.r_correl = np.zeros(self.original_shape[:2])
         self.m_correl = np.zeros(self.original_shape[:2])
         
-        ri = radial_indices(self.c_pacbed.shape, [0, self.cropped_size], 1, center=self.c_ct)
+        ri = radial_indices(self.c_mean_dp.shape, [0, self.cropped_size], 1, center=self.c_ct)
         
         angle = angle * np.pi/180
         alpha, beta = np.cos(angle), np.sin(angle)
@@ -505,6 +505,7 @@ class FourDSTEM_process():
             ax[1].imshow(self.m_correl, cmap="inferno", origin="lower")
             ax[1].set_title("Mirror angle: {}".format(angle))
             ax[1].axis("off")
+            fig.tight_layout()
 
 
     def rotational_average(self, rot_variance=True):
@@ -829,4 +830,6 @@ def mirror(data, center):
     #Input data : 2d # Return : Correlation value
     data1 = data[:, :int(center[1]-1)]
     data2 = np.flip(data, axis=1)[:, :int(center[1]-1)]
-    value = correlation(data1, data2)   
+    value = correlation(data1, data2)
+
+    return value
