@@ -1,7 +1,7 @@
-file	E:/data_temporary/20230320_WSe2_4DSTEM/WSe2_woBN_0.3twist_5.1Mx_360_01_cropped.tif
+file	/home/jinseuk56/Desktop/data_repo/20230927_AlMgZn/acquisition_6/scan_x128_y128.raw
 method	wdd
-aperture	0.015
-stepsize	0.408
+aperture	0.01641
+stepsize	0.9512
 voltage	80.0
 rotation	0.0
 threshold	0.3

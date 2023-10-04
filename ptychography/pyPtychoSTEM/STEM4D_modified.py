@@ -65,7 +65,7 @@ def spike_remove(data, percent_thresh, mode):
 class Data4D():
     def __init__(self,parfile):
         self.init_parameters(parfile)
-        self.setup_scanning_parameters()
+        #self.setup_scanning_parameters()
         #self.center_ronchigrams()
         #self.truncate_ronchigram()
         
@@ -154,31 +154,7 @@ class Data4D():
         os.chdir(self.path)
         print(self.path)
 
-
-        datatype = "float32"
-        f_shape = [256, 256, 128, 128] # the shape of the 4D-STEM data [scanning_y, scanning_x, DP_y, DP_x]
-        o_shape = [f_shape[0], f_shape[1], f_shape[2]+2, f_shape[3]]
-
-        if self.file[-3:] == "raw":
-            f_stack = load_binary_4D_stack(self.file, datatype, o_shape, f_shape, log_scale=False)
-            f_stack = np.flip(f_stack, axis=2)
-            f_stack = np.nan_to_num(f_stack)
-            
-        elif self.file[-3:] == "tif" or self.file[:-4] == "tiff":
-            f_stack = tifffile.imread(self.file)
-            f_stack  = np.nan_to_num(f_stack )
-            
-        else:
-            print("The format of the file is not supported here")
-            
-        print(f_stack.shape)
-        print(f_stack.min(), f_stack.max())
-        print(f_stack.mean())
-
-        f_stack = spike_remove(f_stack, percent_thresh=0.01, mode="lower")
-        f_stack = f_stack.clip(min=0.0)
-
-        self.data_4D=f_stack       
+        self.data_4D=None       
         self.aperturesize = float(par_dictionary.get('aperture',0))
         self.voltage = float(par_dictionary.get('voltage'))
         self.step_size = float(par_dictionary.get('stepsize',1))
