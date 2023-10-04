@@ -63,8 +63,8 @@ def spike_remove(data, percent_thresh, mode):
 
 
 class Data4D():
-    def __init__(self,parfile):
-        self.init_parameters(parfile)
+    def __init__(self):
+        self.init_parameters()
         #self.setup_scanning_parameters()
         #self.center_ronchigrams()
         #self.truncate_ronchigram()
@@ -75,7 +75,7 @@ class Data4D():
                  'step_size_y_reciprocal':self.scan_angle_step_y*1000,
                  'offset_x_reciprocal': self.scan_angles_x[0],
                  'offset_y_reciprocal': self.scan_angles_y[0]}
-        a_file = open(self.path+'data4D_meta.pkl', 'wb')
+        a_file = open('data4D_meta.pkl', 'wb')
 
         pickle.dump(dict1, a_file)
         
@@ -135,37 +135,20 @@ class Data4D():
         wavelength = hc/np.sqrt(Voltage * (2*emass + Voltage))
         return wavelength
     
-    def init_parameters(self, parfile):
-        par_dictionary = {}
+    def init_parameters(self):
 
-        file = open(parfile)
-        for line in file:
-            if line.startswith('##'):
-                continue
-            split_line = line.rstrip().split('\t')
-            print(split_line)
-
-            if len(split_line)!=2:
-                continue
-            key, value = split_line
-            par_dictionary[key] = value
-        self.file = par_dictionary.get('file','')
-        self.path = os.path.abspath(parfile+'/..')+'/'
-        os.chdir(self.path)
-        print(self.path)
-
-        self.data_4D=None       
-        self.aperturesize = float(par_dictionary.get('aperture',0))
-        self.voltage = float(par_dictionary.get('voltage'))
-        self.step_size = float(par_dictionary.get('stepsize',1))
-        self.rotation_angle_deg  = -float(par_dictionary.get('rotation',0))
-        self.rotation_angle = self.rotation_angle_deg/180*np.pi
-        self.method  = par_dictionary.get('method','ssb')
+        self.data_4D = None       
+        self.aperturesize = None
+        self.voltage = None
+        self.step_size = None
+        self.rotation_angle_deg  = None
+        self.rotation_angle = None
+        self.method  = None
 
         # choose any example data for plotting
-        self.workers  = int(par_dictionary.get('workers',1))
-        self.threshold = float(par_dictionary.get('threshold',0.3))
-        self.wave_len = self.Wavelength(self.voltage)
+        self.workers  = None
+        self.threshold = None
+        self.wave_len = None
     
     def setup_scanning_parameters(self):
         self.scan_row = self.data_4D.shape[0]
@@ -1349,24 +1332,7 @@ LTrotter_amp,Trotter_mask,Trotter_phase,Trotter_amp) = mask_trotter(single_trott
         im1 = ax[1].imshow(amplitude, extent = [0,self.phase.shape[1]*self.data4D.step_size,0,self.phase.shape[0]*self.data4D.step_size])
         self.fig.colorbar(im1, ax=ax[1])        
         ax[1].set_title("amplitude")
-        self.fig.savefig(self.data4D.path+'Result.pdf')
         plt.show()
-        
-    def save(self):
-        try:
-            from tifffile import tifffile
-            save_tif = True
-        except:
-            print('Warning: cannot save as .tif (tifffile package required); saving as .txt instead')
-            save_tif = False
-        
-        if save_tif:
-            tifffile.imsave(self.data4D.path+'phase_ssb_'+self.data4D.file[:-4]+'.tif', self.phase.astype('float32'), imagej=True)
-            tifffile.imsave(self.data4D.path+'amplitude_ssb'+self.data4D.file[:-4]+'.tif', self.amplitude.astype('float32'), imagej=True)
-
-        else:
-            np.savetxt(self.data4D.path+'phase_ssb'+self.data4D.file[:-4]+'.txt',self.phase)
-            np.savetxt(self.data4D.path+'amplitude_ssb'+self.data4D.file[:-4]+'.txt',self.amplitude)
 
 
 
@@ -1439,24 +1405,7 @@ class WDD():
         im1 = ax[1].imshow(amplitude, extent = [0,self.phase.shape[1]*self.data4D.step_size,0,self.phase.shape[0]*self.data4D.step_size])
         self.fig.colorbar(im1, ax=ax[1])        
         ax[1].set_title("amplitude")
-        #self.fig.savefig(self.data4D.path+'Result.pdf')
         plt.show()
-        
-    def save(self,appendix=''):
-        try:
-            from tifffile import tifffile
-            save_tif = True
-        except:
-            print('Warning: cannot save as .tif (tifffile package required); saving as .txt instead')
-            save_tif = False
-        
-        if save_tif:
-            tifffile.imsave(self.data4D.path+'phase_wdd'+appendix+'.tif', self.phase.astype('float32'), imagej=True)
-            tifffile.imsave(self.data4D.path+'amplitude_wdd'+appendix+'.tif', self.amplitude.astype('float32'), imagej=True)
-
-        else:
-            np.savetxt(self.data4D.path+'phase_wdd'+appendix+'.txt',self.phase)
-            np.savetxt(self.data4D.path+'amplitude_wdd'+appendix+'.txt',self.amplitude)
             
             
             
@@ -1502,24 +1451,8 @@ class iCoM:
                            extent = [0,self.ic.shape[0]*self.data4D.step_size,0,self.phase.shape[1]*self.data4D.step_size])
         self.fig.colorbar(im1, ax=ax[1])        
         ax[1].set_title("FFT")
-        #self.fig.savefig(self.data4D.path+'Result_iCoM.pdf')
         plt.show()
         
-    def save(self):
-        try:
-            from tifffile import tifffile
-            save_tif = True
-        except:
-            print('Warning: cannot save as .tif (tifffile package required); saving as .txt instead')
-            save_tif = False
-        
-        if save_tif:
-            tifffile.imsave(self.data4D.path+'icom_x.tif', self.icom[0].astype('float32'), imagej=True)
-            tifffile.imsave(self.data4D.path+'icom_y.tif', self.icom[1].astype('float32'), imagej=True)
-
-        else:
-            np.savetxt(self.data4D.path+'icom_x.txt',self.icom[0])
-            np.savetxt(self.data4D.path+'icom_y.txt',self.icom[1])
 
 
 '''
