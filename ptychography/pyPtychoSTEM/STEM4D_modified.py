@@ -683,7 +683,8 @@ class SVD_AC():
                         OmniMatrix_total=np.vstack((OmniMatrix_total,OmniMatrix))
         self.OmniMatrix_total=np.delete(OmniMatrix_total,(0),axis=0)
 
-    def SVD(self,A,b):    
+    def SVD(self,A,b):
+        print(A.shape)   
         u,s,vh=np.linalg.svd(A,full_matrices=True)
         u=np.round(u,4)
         s=np.round(s,4)

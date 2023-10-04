@@ -1,8 +1,0 @@
-file	/home/jinseuk56/Desktop/data_repo/20230927_AlMgZn/acquisition_6/scan_x128_y128.raw
-method	wdd
-aperture	0.01641
-stepsize	0.9512
-voltage	80.0
-rotation	0.0
-threshold	0.3
-workers	8
