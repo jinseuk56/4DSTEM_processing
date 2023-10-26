@@ -578,6 +578,61 @@ def radial_indices(shape, radial_range, scale, center=None):
     
     return ri
 
+def segmented_DPC(xsh, ysh, correct_rotation=True, n_theta=100, hpass=0.05, lpass=0.05, visual=True):
+
+    if correct_rotation:
+        theta = np.linspace(-np.pi/2, np.pi/2, n_theta, endpoint=True)
+        div = []
+        curl = []
+        for t in theta:
+            r_ysh = xsh * np.sin(t) + ysh * np.cos(t)
+            r_xsh = xsh * np.cos(t) - ysh * np.sin(t)
+
+            gyy, gyx = np.gradient(r_ysh)
+            gxy, gxx = np.gradient(r_xsh)
+            shift_divergence = gyy + gxx
+            shift_curl = gyx - gxy
+
+            div.append(np.mean(shift_divergence**2))
+            curl.append(np.mean(shift_curl**2))
+            
+        c_theta = theta[np.argmin(curl)]
+        tmp_ysh = xsh * np.sin(c_theta) + ysh * np.cos(c_theta)
+        tmp_xsh = xsh * np.cos(c_theta) - ysh * np.sin(c_theta)
+        
+        ysh = tmp_ysh
+        xsh = tmp_xsh
+
+        print("optimized rotation angle: ", c_theta*180/np.pi)
+        
+    E_mag = np.sqrt(ysh**2 + xsh**2)
+    E_field_y = -ysh / np.max(E_mag)
+    E_field_x = -xsh / np.max(E_mag)
+    
+    charge_density = np.gradient(E_field_y)[0] + np.gradient(E_field_x)[1]
+    
+    potential = get_icom(ysh, xsh, hpass, lpass)
+
+    if visual:
+        fig, ax = plt.subplots(1, 3, figsize=(21, 7))
+        ax[0].imshow(E_field_y, cmap="gray", origin="lower")
+        ax[0].axis("off")
+        ax[1].imshow(E_field_x, cmap="gray", origin="lower")
+        ax[1].axis("off")
+        ax[2].imshow(E_mag, cmap="inferno", origin="lower")
+        ax[2].axis("off")
+        fig.tight_layout()
+
+        fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+        ax[0].imshow(charge_density, cmap="RdBu_r", origin="lower")
+        ax[0].axis("off")
+        ax[1].imshow(potential, cmap="inferno", origin="lower")
+        ax[1].axis("off")
+        fig.tight_layout()
+
+    return E_mag, E_field_x, E_field_y, charge_density, potential
+
+
 def get_icom(ysh, xsh, hpass=0, lpass=0):
     
     FT_ysh = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(ysh)))
