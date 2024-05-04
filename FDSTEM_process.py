@@ -319,7 +319,7 @@ class slice_viewer:
 
         self.ax.set_title("Series No.%d"%(self.ind+1))
         
-        self.im = ax.imshow(self.X[self.ind], cmap="gray")
+        self.im = ax.imshow(self.X[self.ind], cmap="inferno")
         self.ax.axis("off")
         self.update()
 
