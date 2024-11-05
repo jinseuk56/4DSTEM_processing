@@ -354,10 +354,19 @@ class FourDSTEM_process():
             self.f_stack = np.flip(self.f_stack, axis=2)
             self.f_stack = np.nan_to_num(self.f_stack)
             
-        elif file_adr[-3:] == "tif" or file_adr[:-4] == "tiff":
+        elif file_adr[-3:] == "tif" or file_adr[-4:] == "tiff":
             self.f_stack = tifffile.imread(file_adr)
             self.f_stack  = np.nan_to_num(self.f_stack)
-            
+
+        elif file_adr[-3:] == "dm3" or file_adr[-3:] == "dm4":
+            try:
+                import hyperspy.api as hs
+                self.f_stack = hs.load(file_adr).data
+                self.f_stack = fourd_roll_axis(self.f_stack)
+                self.f_stack  = np.nan_to_num(self.f_stack)
+            except:
+                print("HyperSpy must be installed first")
+
         else:
             print("The format of the file is not supported here")
             
@@ -366,7 +375,6 @@ class FourDSTEM_process():
         print(self.f_stack.mean())
 
         self.f_stack = self.f_stack.clip(min=0.0)
-
 
         self.original_stack = self.f_stack
         self.original_shape = self.f_stack.shape
@@ -996,3 +1004,7 @@ def mirror(data, center):
     value = correlation(data1, data2)
 
     return value
+
+def fourd_roll_axis(stack):
+    stack = np.rollaxis(np.rollaxis(stack, 2, 0), 3, 1)
+    return stack
