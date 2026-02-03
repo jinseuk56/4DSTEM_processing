@@ -1,4 +1,7 @@
 # 4DSTEM processing & visualization tool
+## Application examples
+1) Ryu, J., Lee, S., Kim, S., Joo, Y. C., & Kim, M. (2022). Correlative study between the local atomic and electronic structures of amorphous carbon materials via 4D-STEM and STEM-EELS. Applied Physics Letters, 121(4).
+
 
 ## References
 ### Radial distribution function
