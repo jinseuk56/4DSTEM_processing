@@ -181,68 +181,140 @@ def local_similarity(var_map, f_flat, w_size, rows, cols):
 
 def angular_correlation_fft(values):
     """
-    Fast circular angular correlation using 1D FFT.
-    Calculates: C(l) = <x[m] * x[(m - l) % N]>_m / <x>^2 - 1
-    
-    Parameters:
-    -----------
-    values : ndarray, shape (..., N_angles)
-        The intensity profile along the azimuthal angles.
+    Circular angular correlation using 1D FFT.
+    Supports both NumPy (CPU) and CuPy (GPU) arrays.
     """
+    try:
+        import cupy as cp
+        xp = cp.get_array_module(values)
+        fft_mod = cp.fft if xp is cp else np.fft
+    except ImportError:
+        xp = np
+        fft_mod = np.fft
+
     N = values.shape[-1]
+    fft_vals = fft_mod.fft(values, axis=-1)
+    power_spec = xp.abs(fft_vals)**2
+    autocorr = xp.real(fft_mod.ifft(power_spec, axis=-1)) / N
     
-    # Compute circular autocorrelation using Wiener-Khinchin theorem:
-    # corr = IFFT(|FFT(x)|^2)
-    fft_vals = np.fft.fft(values, axis=-1)
-    power_spec = np.abs(fft_vals)**2
-    autocorr = np.real(np.fft.ifft(power_spec, axis=-1)) / N
-    
-    # Calculate normalization factor (mean squared of values along the angle axis)
-    mean_vals = np.mean(values, axis=-1, keepdims=True)
+    mean_vals = xp.mean(values, axis=-1, keepdims=True)
     mean_vals_sq = mean_vals ** 2
-    # Prevent division by zero
-    mean_vals_sq = np.where(mean_vals_sq == 0, 1.0, mean_vals_sq)
+    mean_vals_sq = xp.where(mean_vals_sq == 0, 1.0, mean_vals_sq)
     
-    ang_corr = (autocorr / mean_vals_sq) - 1
+    ang_corr = (autocorr / mean_vals_sq) - 1.0
     return ang_corr
 
 def angular_correlation_direct(values, method='linear'):
     """
-    Compute direct angular correlation (either using standard linear boundaries with nanmean, 
-    matching the original code's implementation, or circular wrap-around).
-    
-    Parameters:
-    -----------
-    values : ndarray, shape (N_angles,)
-        The intensity profile along the azimuthal angles.
-    method : str
-        'linear': replicates original code's linear autocorrelation with triangular mask (nanmean, length decreases with lag).
-        'circular': standard circular autocorrelation using direct rolling.
+    Compute direct angular correlation.
+    Supports both NumPy and CuPy arrays.
     """
+    try:
+        import cupy as cp
+        xp = cp.get_array_module(values)
+    except ImportError:
+        xp = np
+
     N = len(values)
-    
-    # Reconstruct value_stack using list comprehension (much faster than loop np.vstack)
-    value_stack = np.array([np.roll(values, l) for l in range(N)])
+    value_stack = xp.array([xp.roll(values, l) for l in range(N)])
     
     if method == 'linear':
-        # Replicate original implementation with upper-triangular nan masking
-        tril_mask = np.ones((N, N))
-        tril_mask = np.triu(tril_mask, 0)
-        tril_mask[np.where(tril_mask == 0)] = np.nan
+        tril_mask = xp.ones((N, N))
+        tril_mask = xp.triu(tril_mask, 0)
+        tril_mask[xp.where(tril_mask == 0)] = xp.nan
         
-        ang_corr = np.multiply(value_stack, values[np.newaxis, :])
-        ang_corr = np.multiply(np.triu(ang_corr, 0), tril_mask)
+        ang_corr = xp.multiply(value_stack, values[xp.newaxis, :])
+        ang_corr = xp.multiply(xp.triu(ang_corr, 0), tril_mask)
         
-        value_avgsq = np.mean(values)**2 if np.mean(values) != 0 else 1.0
-        ac_spectrum = np.nanmean(ang_corr, axis=1)
+        value_avgsq = xp.mean(values)**2 if xp.mean(values) != 0 else 1.0
+        ac_spectrum = xp.nanmean(ang_corr, axis=1)
         ac_spectrum = (ac_spectrum / value_avgsq) - 1
         return ac_spectrum
         
     elif method == 'circular':
-        ang_corr = np.multiply(value_stack, values[np.newaxis, :])
-        ac_spectrum = np.mean(ang_corr, axis=1)
-        value_avgsq = np.mean(values)**2 if np.mean(values) != 0 else 1.0
+        ang_corr = xp.multiply(value_stack, values[xp.newaxis, :])
+        ac_spectrum = xp.mean(ang_corr, axis=1)
+        value_avgsq = xp.mean(values)**2 if xp.mean(values) != 0 else 1.0
         ac_spectrum = (ac_spectrum / value_avgsq) - 1
         return ac_spectrum
     else:
         raise ValueError(f"Unknown method: {method}")
+
+def calculate_angular_correlations(stack, k_range, center, angle_sampling=361, gaussian_sigma=2.0, use_gpu=False):
+    """
+    Vectorized computation of angular correlations for a range of k-indices.
+    Supports GPU acceleration if use_gpu=True and cupy is installed.
+    """
+    Ny, Nx, DPy, DPx = stack.shape
+    
+    if use_gpu:
+        try:
+            import cupy as cp
+            import cupyx.scipy.ndimage as cp_ndimage
+            xp = cp
+            fft_mod = cp.fft
+            # Upload to GPU
+            stack_gpu = cp.asarray(stack, dtype=cp.float32)
+            ndimage_mod = cp_ndimage
+            center_gpu = cp.asarray(center)
+        except ImportError:
+            print("CuPy not available, falling back to NumPy CPU.")
+            xp = np
+            fft_mod = np.fft
+            stack_gpu = stack
+            import scipy.ndimage as ndimage_mod
+            center_gpu = center
+    else:
+        xp = np
+        fft_mod = np.fft
+        stack_gpu = stack
+        import scipy.ndimage as ndimage_mod
+        center_gpu = center
+
+    from .processing import indices_at_r
+    
+    ac_spectra_list = []
+    ac_fft_list = []
+    
+    for k in k_range:
+        # Note: indices_at_r returns NumPy arrays
+        k_ind, a_ind = indices_at_r((DPy, DPx), k, center)
+        if len(a_ind) == 0:
+            ac_spectra_list.append(xp.zeros((Ny, Nx, angle_sampling), dtype=xp.float32))
+            ac_fft_list.append(xp.zeros((Ny, Nx, angle_sampling), dtype=xp.float32))
+            continue
+            
+        # Extract intensities at k_ind for all probe positions: shape (Ny, Nx, N_pixels)
+        raw_intensities = stack_gpu[:, :, k_ind[0], k_ind[1]]
+        # Reshape to (Ny * Nx, N_pixels)
+        raw_flat = raw_intensities.reshape(-1, len(a_ind))
+        
+        # Construct profiles of shape (Ny * Nx, angle_sampling)
+        profiles = xp.zeros((Ny * Nx, angle_sampling), dtype=xp.float32)
+        
+        if use_gpu and xp is cp:
+            # CuPy array assignment for indexes
+            profiles[:, cp.asarray(a_ind.astype(np.int32))] = raw_flat
+        else:
+            profiles[:, a_ind.astype(np.int32)] = raw_flat
+        
+        # Apply 1D Gaussian filter along the angle dimension (axis=-1)
+        profiles = ndimage_mod.gaussian_filter1d(profiles, sigma=gaussian_sigma, axis=-1, mode='wrap')
+        
+        # Compute circular angular correlation via FFT
+        ac = angular_correlation_fft(profiles)
+        ac_fft = xp.abs(fft_mod.fft(ac, axis=-1))
+        
+        # Reshape back to (Ny, Nx, angle_sampling)
+        ac_spectra_list.append(ac.reshape(Ny, Nx, -1))
+        ac_fft_list.append(ac_fft.reshape(Ny, Nx, -1))
+        
+    ac_spectra = xp.stack(ac_spectra_list, axis=0)
+    ac_fft_stack = xp.stack(ac_fft_list, axis=0)
+    
+    if use_gpu and xp is cp:
+        ac_spectra = cp.asnumpy(ac_spectra)
+        ac_fft_stack = cp.asnumpy(ac_fft_stack)
+        
+    return ac_spectra, ac_fft_stack
+

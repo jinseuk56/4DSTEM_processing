@@ -11,14 +11,11 @@ Usage:
 import argparse
 import sys
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
-import matplotlib.pyplot as plt
 import tifffile
 import tkinter.filedialog as tkf
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
-from fourdstem.viewers import slice_viewer
+from fourdstem import launch_pyqt_slice_viewer
 
 def main():
     parser = argparse.ArgumentParser(description="Interactive 2D slice stack viewer")
@@ -40,13 +37,9 @@ def main():
     if data.ndim != 3:
         raise ValueError(f"Expected 3D stack (N_slices, Ny, Nx), got {data.ndim}D stack with shape {data.shape}")
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    fig.suptitle("Slice Viewer: Press Up/Right to go forward, Down/Left to go backward")
-
-    viewer = slice_viewer(ax, data)
-    fig.canvas.mpl_connect("key_press_event", viewer.on_press)
-    fig.tight_layout()
-    plt.show()
+    print("Launching PyQt5 + pyqtgraph slice viewer app...")
+    launch_pyqt_slice_viewer(data)
+    print("Viewer closed.")
 
 if __name__ == "__main__":
     main()

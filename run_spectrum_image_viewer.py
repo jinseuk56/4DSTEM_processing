@@ -11,14 +11,11 @@ Usage:
 import argparse
 import sys
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
-import matplotlib.pyplot as plt
 import tifffile
 import tkinter.filedialog as tkf
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
-from fourdstem.viewers import threed_viewer
+from fourdstem import launch_pyqt_3d_viewer
 
 def main():
     parser = argparse.ArgumentParser(description="Interactive 3D spectrum image viewer")
@@ -44,14 +41,9 @@ def main():
     if data.ndim != 3:
         raise ValueError(f"Expected 3D stack, got {data.ndim}D stack with shape {data.shape}")
 
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-    fig.suptitle("1st figure (intensity): click or arrows to move position | 2nd figure (virtual bandpass image)\n3rd figure: drag to select virtual bandpass / press 'l' to toggle log / 't' for sum spectrum")
-
-    viewer = threed_viewer(fig, ax, data, x_scale=args.x_scale, x_unit=args.x_unit)
-    fig.canvas.mpl_connect("key_press_event", viewer.on_press)
-    fig.canvas.mpl_connect("button_press_event", viewer.on_pick)
-    fig.tight_layout()
-    plt.show()
+    print("Launching PyQt5 + pyqtgraph 3D spectrum image viewer app...")
+    launch_pyqt_3d_viewer(data, x_scale=args.x_scale, x_unit=args.x_unit)
+    print("Viewer closed.")
 
 if __name__ == "__main__":
     main()

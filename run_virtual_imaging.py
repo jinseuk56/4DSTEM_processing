@@ -15,7 +15,7 @@ Workflow:
 
 Usage:
     python run_virtual_imaging.py [--file PATH] [--scan_per_pixel SCALE] [--mrad_per_pixel SCALE]
-                                  [--cbox_edge EDGE] [--hpass HP] [--lpass LP] [--symmetry_angle DEG]
+                                  [--cbox_edge EDGE] [--hpass HP] [--lpass LP] [--symmetry_angle DEG] [--use_gpu]
 """
 import argparse
 import sys
@@ -48,6 +48,8 @@ def main():
                         help="Angle in degrees for symmetry evaluation. Default: 90.0")
     parser.add_argument("--save_prefix", type=str, default=None,
                         help="Prefix for saved output files")
+    parser.add_argument("--use_gpu", action="store_true",
+                        help="Use GPU acceleration (via CuPy) for DPC and symmetry evaluations")
 
     args = parser.parse_args()
 
@@ -94,7 +96,7 @@ def main():
 
     # --- DPC Integration ---
     print("\nReconstructing phase/potential via DPC integration...")
-    fd.DPC(correct_rotation=True, n_theta=100, hpass=args.hpass, lpass=args.lpass, visual=True)
+    fd.DPC(correct_rotation=True, n_theta=100, hpass=args.hpass, lpass=args.lpass, visual=True, use_gpu=args.use_gpu)
 
     # Save DPC outputs
     tifffile.imwrite(save_prefix + "_dDPC_charge.tif", fd.charge_density.astype(np.float32))
@@ -104,7 +106,7 @@ def main():
     # --- Symmetry Evaluation ---
     print(f"\nEvaluating rotational/mirror symmetry at {args.symmetry_angle}°...")
     start = time.process_time()
-    fd.symmetry_evaluation(args.symmetry_angle, also_mirror=True, visual=True)
+    fd.symmetry_evaluation(args.symmetry_angle, also_mirror=True, visual=True, use_gpu=args.use_gpu)
     elapsed = time.process_time() - start
     print(f"Symmetry evaluation finished in {elapsed:.2f} seconds.")
     

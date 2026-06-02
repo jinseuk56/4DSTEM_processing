@@ -177,36 +177,65 @@ class FourDSTEM_process():
             ax[1][1].axis("off")
             fig.tight_layout()
 
-    def DPC(self, correct_rotation=True, n_theta=100, hpass=0.05, lpass=0.05, visual=True):
+    def DPC(self, correct_rotation=True, n_theta=100, hpass=0.05, lpass=0.05, visual=True, use_gpu=False):
         """
         Hachtel, J.A., J.C. Idrobo, and M. Chi, Adv Struct Chem Imaging, 2018. 4(1): p. 10. (https://github.com/hachteja/GetDPC)
         Lazic, I., E.G.T. Bosch, and S. Lazar, Ultramicroscopy, 2016. 160: p. 265-280.
         Savitzky, B.H., et al., arXiv preprint arXiv:2003.09523, 2020. (https://github.com/py4dstem/py4DSTEM)
         """
-        Y, X = np.indices(self.c_mean_dp.shape)
-        self.ysh = np.sum(self.c_stack * Y, axis=(2, 3)) / np.sum(self.c_stack, axis=(2, 3)) - self.c_ct[0]
-        self.xsh = np.sum(self.c_stack * X, axis=(2, 3)) / np.sum(self.c_stack, axis=(2, 3)) - self.c_ct[1]
+        if use_gpu:
+            try:
+                import cupy as cp
+                xp = cp
+            except ImportError:
+                print("CuPy not available, falling back to CPU.")
+                use_gpu = False
+                xp = np
+        else:
+            xp = np
+
+        Y, X = xp.indices(self.c_mean_dp.shape)
+        
+        if use_gpu:
+            c_stack_gpu = cp.asarray(self.c_stack, dtype=cp.float32)
+            c_stack_sum = cp.sum(c_stack_gpu, axis=(2, 3))
+            c_stack_sum = cp.where(c_stack_sum == 0, 1.0, c_stack_sum) # avoid div by zero
+            self.ysh = cp.asnumpy(cp.sum(c_stack_gpu * Y, axis=(2, 3)) / c_stack_sum - self.c_ct[0])
+            self.xsh = cp.asnumpy(cp.sum(c_stack_gpu * X, axis=(2, 3)) / c_stack_sum - self.c_ct[1])
+        else:
+            self.ysh = np.sum(self.c_stack * Y, axis=(2, 3)) / np.sum(self.c_stack, axis=(2, 3)) - self.c_ct[0]
+            self.xsh = np.sum(self.c_stack * X, axis=(2, 3)) / np.sum(self.c_stack, axis=(2, 3)) - self.c_ct[1]
         
         self.ysh -= np.mean(self.ysh)
         self.xsh -= np.mean(self.xsh)
         
         if correct_rotation:
-            theta = np.linspace(-np.pi/2, np.pi/2, n_theta, endpoint=True)
+            theta = xp.linspace(-xp.pi/2, xp.pi/2, n_theta, endpoint=True)
             self.div = []
             self.curl = []
+            
+            ysh_xp = xp.asarray(self.ysh)
+            xsh_xp = xp.asarray(self.xsh)
+            
             for t in theta:
-                r_ysh = self.xsh * np.sin(t) + self.ysh * np.cos(t)
-                r_xsh = self.xsh * np.cos(t) - self.ysh * np.sin(t)
+                r_ysh = xsh_xp * xp.sin(t) + ysh_xp * xp.cos(t)
+                r_xsh = xsh_xp * xp.cos(t) - ysh_xp * xp.sin(t)
 
-                gyy, gyx = np.gradient(r_ysh)
-                gxy, gxx = np.gradient(r_xsh)
+                gyy, gyx = xp.gradient(r_ysh)
+                gxy, gxx = xp.gradient(r_xsh)
                 shift_divergence = gyy + gxx
                 shift_curl = gyx - gxy
 
-                self.div.append(np.mean(shift_divergence**2))
-                self.curl.append(np.mean(shift_curl**2))
+                self.div.append(xp.mean(shift_divergence**2))
+                self.curl.append(xp.mean(shift_curl**2))
                 
-            self.c_theta = theta[np.argmin(self.curl)]
+            if use_gpu:
+                self.div = [float(val) for val in self.div]
+                self.curl = [float(val) for val in self.curl]
+                self.c_theta = float(theta[np.argmin(self.curl)])
+            else:
+                self.c_theta = theta[np.argmin(self.curl)]
+                
             tmp_ysh = self.xsh * np.sin(self.c_theta) + self.ysh * np.cos(self.c_theta)
             tmp_xsh = self.xsh * np.cos(self.c_theta) - self.ysh * np.sin(self.c_theta)
             
@@ -218,7 +247,7 @@ class FourDSTEM_process():
         self.E_field_x = -self.xsh / np.max(self.E_mag)
         
         self.charge_density = np.gradient(self.E_field_y)[0] + np.gradient(self.E_field_x)[1]
-        self.potential = get_icom(self.ysh, self.xsh, hpass, lpass)
+        self.potential = get_icom(self.ysh, self.xsh, hpass, lpass, use_gpu=use_gpu)
 
         if visual:
             print("optimized angle =", self.c_theta*180/np.pi)
@@ -244,35 +273,85 @@ class FourDSTEM_process():
             ax[2].axis("off")
             fig.tight_layout()
 
-    def symmetry_evaluation(self, angle, also_mirror=False, visual=True):
+    def symmetry_evaluation(self, angle, also_mirror=False, visual=True, use_gpu=False):
         """
         Krajnak, M. and J. Etheridge, Proc Natl Acad Sci U S A, 2020. 117(45): p. 27805-27810.
         """
-        if cv2 is None:
-            raise RuntimeError("OpenCV is required for symmetry evaluation.")
+        if use_gpu:
+            try:
+                import cupy as cp
+                from cupyx.scipy.ndimage import affine_transform
+                xp = cp
+            except ImportError:
+                print("CuPy not available, falling back to CPU.")
+                use_gpu = False
+                xp = np
+        else:
+            xp = np
+
+        if not use_gpu and cv2 is None:
+            raise RuntimeError("OpenCV is required for CPU-based symmetry evaluation.")
             
-        self.rotation_stack = []
         self.r_correl = np.zeros(self.original_shape[:2])
         self.m_correl = np.zeros(self.original_shape[:2])
         
         ri = radial_indices(self.c_mean_dp.shape, [0, self.cropped_size], 1, center=self.c_ct)
+        ri_xp = xp.asarray(ri, dtype=xp.float32)
         
-        angle = angle * np.pi/180
-        alpha, beta = np.cos(angle), np.sin(angle)
-        M = np.array([[alpha, beta, (1-alpha)*self.c_ct[1]-beta*self.c_ct[0]], 
-                    [-beta, alpha, beta*self.c_ct[1]+(1-alpha)*self.c_ct[0]]])
+        angle_rad = angle * np.pi / 180.0
+        cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
         
-        for i in range(self.original_shape[0]):
-            for j in range(self.original_shape[1]):
-                tmp_dp = self.c_stack[i,j,:,:].copy()
-                newdata = np.multiply(rotation(tmp_dp, M), ri)
-                self.rotation_stack.append(newdata)
-                self.r_correl[i,j] = correlation(tmp_dp/np.max(tmp_dp), newdata)
+        if use_gpu:
+            matrix = cp.array([[cos_a, sin_a], [-sin_a, cos_a]])
+            cy, cx = self.c_ct
+            offset = cp.array([cy, cx]) - matrix @ cp.array([cy, cx])
+            
+            flat_stack = cp.asarray(self.c_stack, dtype=cp.float32)
+            Ny, Nx, DPy, DPx = flat_stack.shape
+            flat_stack = flat_stack.reshape(-1, DPy, DPx)
+            
+            rotated_flat = cp.empty_like(flat_stack)
+            for idx in range(flat_stack.shape[0]):
+                rotated_flat[idx] = affine_transform(flat_stack[idx], matrix, offset=offset)
+            
+            rotated_flat = rotated_flat * ri_xp[cp.newaxis, :, :]
+            
+            flat_max = cp.max(flat_stack, axis=(1, 2), keepdims=True)
+            flat_max = cp.where(flat_max == 0, 1.0, flat_max)
+            flat_stack_norm = flat_stack / flat_max
+            
+            rot_max = cp.max(rotated_flat, axis=(1, 2), keepdims=True)
+            rot_max = cp.where(rot_max == 0, 1.0, rot_max)
+            rotated_stack_norm = rotated_flat / rot_max
+            
+            r_correl_cp = cp.sum(flat_stack_norm * rotated_stack_norm, axis=(1, 2))
+            self.r_correl = cp.asnumpy(r_correl_cp).reshape(Ny, Nx)
+            self.rotation_stack = cp.asnumpy(rotated_flat).reshape(self.c_shape)
+            
+            if also_mirror:
+                cx_int = int(self.c_ct[1] - 1)
+                data1 = rotated_flat[:, :, :cx_int]
+                data2 = cp.flip(rotated_flat, axis=2)[:, :, :cx_int]
                 
-                if also_mirror:
-                    self.m_correl[i, j] = mirror(newdata, self.c_ct)
-        
-        self.rotation_stack = np.asarray(self.rotation_stack).reshape(self.c_shape)
+                m_correl_cp = cp.sum(data1 * data2, axis=(1, 2))
+                self.m_correl = cp.asnumpy(m_correl_cp).reshape(Ny, Nx)
+        else:
+            self.rotation_stack = []
+            alpha, beta = cos_a, sin_a
+            M = np.array([[alpha, beta, (1-alpha)*self.c_ct[1]-beta*self.c_ct[0]], 
+                        [-beta, alpha, beta*self.c_ct[1]+(1-alpha)*self.c_ct[0]]])
+            
+            for i in range(self.original_shape[0]):
+                for j in range(self.original_shape[1]):
+                    tmp_dp = self.c_stack[i,j,:,:].copy()
+                    newdata = np.multiply(rotation(tmp_dp, M), ri)
+                    self.rotation_stack.append(newdata)
+                    self.r_correl[i,j] = correlation(tmp_dp/np.max(tmp_dp), newdata)
+                    
+                    if also_mirror:
+                        self.m_correl[i, j] = mirror(newdata, self.c_ct)
+            
+            self.rotation_stack = np.asarray(self.rotation_stack).reshape(self.c_shape)
 
         if visual:
             fig, ax = plt.subplots(1, 2, figsize=(20, 10))
@@ -332,24 +411,45 @@ def radial_indices(shape, radial_range, scale=1, center=None):
     
     return ri
 
-def segmented_DPC(xsh, ysh, correct_rotation=True, n_theta=100, hpass=0.05, lpass=0.05, visual=True):
+def segmented_DPC(xsh, ysh, correct_rotation=True, n_theta=100, hpass=0.05, lpass=0.05, visual=True, use_gpu=False):
+    if use_gpu:
+        try:
+            import cupy as cp
+            xp = cp
+        except ImportError:
+            print("CuPy not available, falling back to CPU.")
+            use_gpu = False
+            xp = np
+    else:
+        xp = np
+
     if correct_rotation:
-        theta = np.linspace(-np.pi/2, np.pi/2, n_theta, endpoint=True)
+        theta = xp.linspace(-xp.pi/2, xp.pi/2, n_theta, endpoint=True)
         div = []
         curl = []
+        
+        ysh_xp = xp.asarray(ysh)
+        xsh_xp = xp.asarray(xsh)
+        
         for t in theta:
-            r_ysh = xsh * np.sin(t) + ysh * np.cos(t)
-            r_xsh = xsh * np.cos(t) - ysh * np.sin(t)
+            r_ysh = xsh_xp * xp.sin(t) + ysh_xp * xp.cos(t)
+            r_xsh = xsh_xp * xp.cos(t) - ysh_xp * xp.sin(t)
 
-            gyy, gyx = np.gradient(r_ysh)
-            gxy, gxx = np.gradient(r_xsh)
+            gyy, gyx = xp.gradient(r_ysh)
+            gxy, gxx = xp.gradient(r_xsh)
             shift_divergence = gyy + gxx
             shift_curl = gyx - gxy
 
-            div.append(np.mean(shift_divergence**2))
-            curl.append(np.mean(shift_curl**2))
+            div.append(xp.mean(shift_divergence**2))
+            curl.append(xp.mean(shift_curl**2))
             
-        c_theta = theta[np.argmin(curl)]
+        if use_gpu:
+            div = [float(val) for val in div]
+            curl = [float(val) for val in curl]
+            c_theta = float(theta[np.argmin(curl)])
+        else:
+            c_theta = theta[np.argmin(curl)]
+            
         tmp_ysh = xsh * np.sin(c_theta) + ysh * np.cos(c_theta)
         tmp_xsh = xsh * np.cos(c_theta) - ysh * np.sin(c_theta)
         
@@ -362,7 +462,7 @@ def segmented_DPC(xsh, ysh, correct_rotation=True, n_theta=100, hpass=0.05, lpas
     E_field_x = -xsh / np.max(E_mag)
     
     charge_density = np.gradient(E_field_y)[0] + np.gradient(E_field_x)[1]
-    potential = get_icom(ysh, xsh, hpass, lpass)
+    potential = get_icom(ysh, xsh, hpass, lpass, use_gpu=use_gpu)
 
     if visual:
         fig, ax = plt.subplots(1, 3, figsize=(21, 7))
@@ -383,26 +483,49 @@ def segmented_DPC(xsh, ysh, correct_rotation=True, n_theta=100, hpass=0.05, lpas
 
     return E_mag, E_field_x, E_field_y, charge_density, potential
 
-def get_icom(ysh, xsh, hpass=0, lpass=0):
+def get_icom(ysh, xsh, hpass=0, lpass=0, use_gpu=False):
     """
     Integrate center of mass (COM) shifts to reconstruct phase/potential.
     Computes Chellappa DPC integration in Fourier space.
+    Supports GPU acceleration using CuPy.
     """
-    FT_ysh = np.fft.fftshift(np.fft.fft2(ysh))
-    FT_xsh = np.fft.fftshift(np.fft.fft2(xsh))
+    if use_gpu:
+        try:
+            import cupy as cp
+            xp = cp
+            fft_mod = cp.fft
+            ysh_xp = cp.asarray(ysh, dtype=cp.float32)
+            xsh_xp = cp.asarray(xsh, dtype=cp.float32)
+        except ImportError:
+            print("CuPy not available, falling back to CPU.")
+            xp = np
+            fft_mod = np.fft
+            ysh_xp = ysh
+            xsh_xp = xsh
+            use_gpu = False
+    else:
+        xp = np
+        fft_mod = np.fft
+        ysh_xp = ysh
+        xsh_xp = xsh
+
+    FT_ysh = fft_mod.fftshift(fft_mod.fft2(ysh_xp))
+    FT_xsh = fft_mod.fftshift(fft_mod.fft2(xsh_xp))
     
-    ky = np.fft.fftshift(np.fft.fftfreq(FT_ysh.shape[0])).reshape(-1, 1)
-    kx = np.fft.fftshift(np.fft.fftfreq(FT_xsh.shape[1])).reshape(1, -1)
+    ky = fft_mod.fftshift(fft_mod.fftfreq(FT_ysh.shape[0])).reshape(-1, 1)
+    kx = fft_mod.fftshift(fft_mod.fftfreq(FT_xsh.shape[1])).reshape(1, -1)
 
     k2 = ky**2 + kx**2
-    zero_ind = np.where(k2 == 0.0)
+    zero_ind = xp.where(k2 == 0.0)
     k2[zero_ind] = 1.0
 
-    # In frequency space: Potential(k) = ( S_y * ky + S_x * kx ) / ( i * 2 * pi * k^2 )
-    FT_phase = (FT_ysh * ky + FT_xsh * kx) / (2 * np.pi * 1j * (hpass + k2 + lpass * k2))
+    FT_phase = (FT_ysh * ky + FT_xsh * kx) / (2 * xp.pi * 1j * (hpass + k2 + lpass * k2))
     FT_phase[zero_ind] = 0.0
 
-    Iicom = np.real(np.fft.ifft2(np.fft.ifftshift(FT_phase)))
+    Iicom = xp.real(fft_mod.ifft2(fft_mod.ifftshift(FT_phase)))
+    
+    if use_gpu:
+        return cp.asnumpy(Iicom)
     return Iicom
 
 def find_nearest(array, value):
