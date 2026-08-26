@@ -1,6 +1,8 @@
 # 4DSTEM processing & visualization tool
 ## Application examples
 1) Ryu, J., et al., Correlative study between the local atomic and electronic structures of amorphous carbon materials via 4D-STEM and STEM-EELS. Applied Physics Letters, 2022. 121(4).
+2) Zeng, Q., et al., A hierarchical shell locks and stabilizes perovskite nanocrystals with near-unity quantum yield. Science, 2026. 391(6782).
+
 
 ## References
 ### Radial distribution function
